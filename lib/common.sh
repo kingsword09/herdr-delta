@@ -81,3 +81,39 @@ for p in d["result"]["panes"]:
 _py() {
     python3 -c "$1"
 }
+
+# Default dispatch engine, overridable per user via the plugin config dir.
+default_engine() {
+    cfg="${HERDR_PLUGIN_CONFIG_DIR:-$HOME/.config/herdr/plugins/config/delta.bridge}/engine"
+    if [ -f "$cfg" ]; then cat "$cfg"; else echo terminal; fi
+}
+
+# Run a headless terminal agent inside <checkout>, logging to the round log.
+# Executor templates live here; add one agent = add one case.
+run_terminal_agent() { # run_terminal_agent <task> <checkout> <log-file>
+    task="$1"; ck="$2"; log="${3:-/dev/null}"
+    model_args=""
+    [ -n "${MODEL:-}" ] && model_args="$model_args -m $MODEL"
+    effort_args=""
+    [ -n "${EFFORT:-}" ] && effort_args="$effort_args -c model_reasoning_effort=$EFFORT"
+    case "${AGENT:-codex}" in
+    codex)
+        (cd "$ck" && codex exec $model_args $effort_args --skip-git-repo-check \
+            --dangerously-bypass-approvals-and-sandbox "$task") >"$log" 2>&1
+        ;;
+    claude)
+        (cd "$ck" && claude -p $model_args --dangerously-skip-permissions "$task") >"$log" 2>&1
+        ;;
+    zcode)
+        # npx-installed ZCode: headless via -p; yolo mode so it lands changes.
+        zcode_bin="${ZCODE_BIN:-zcode}"
+        command -v "$zcode_bin" >/dev/null 2>&1 \
+            || zcode_bin="${HOME}/.npm/_npx/e13d1ea324ce7e27/node_modules/.bin/zcode"
+        (cd "$ck" && "$zcode_bin" -p --mode yolo --cwd "$ck" "$task") >"$log" 2>&1
+        ;;
+    *)
+        echo "delta.bridge: no headless template for agent '${AGENT:-}'" >"$log"
+        return 1
+        ;;
+    esac
+}

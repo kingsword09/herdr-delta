@@ -114,11 +114,43 @@ def agent_reply_text():
     return out if rc == 0 else ""
 
 
+def nudge_reviewer(message):
+    """Tell the reviewer pane a round finished. Prefers the bound pane."""
+    pane = binding("REVIEWER") or pane_id()
+    if not pane:
+        return
+    rc, _ = herdr("agent", "prompt", pane, message, timeout_s=30)
+    if rc != 0:
+        herdr("pane", "send-text", pane, message, timeout_s=15)
+
+
+def round_file_for(text):
+    """True when a dispatch round record (round-*.env) names this thread."""
+    try:
+        names = os.listdir(STATE_DIR)
+    except OSError:
+        return False
+    for name in names:
+        if not name.startswith("round-") or not name.endswith(".env"):
+            continue
+        path = os.path.join(STATE_DIR, name)
+        try:
+            with open(path) as f:
+                body = f.read()
+        except OSError:
+            continue
+        if f"THREAD_ID={THREAD_ID}" in body and "ENGINE=delta" in body:
+            return True
+    return False
+
+
 def main():
     if not THREAD_ID:
         sys.stderr.write("bridge-loop: no thread id\n")
         return
     turn_open_seq = None
+    round_active = False       # engine=delta dispatch round on this thread
+    round_working_seen = False
 
     for line in sys.stdin:
         line = line.strip()
@@ -130,8 +162,26 @@ def main():
             continue
         kind = ev.get("type")
 
+        if kind == "turn":
+            # engine=delta rounds: the human pressed Send in the GUI; when
+            # the turn goes back to idle the round is done — nudge the
+            # reviewer pane once.
+            state = (ev.get("state") or "").strip()
+            if round_active:
+                if state == "running":
+                    round_working_seen = True
+                elif state in ("idle", "done") and round_working_seen:
+                    round_active = False
+                    round_working_seen = False
+                    nudge_reviewer(
+                        "Delta round finished on thread "
+                        f"{THREAD_ID}. Review the uncommitted changes "
+                        "(git diff in the project, or open the thread in "
+                        "Delta); run delta.bridge.finalize when satisfied.")
+            continue
+
         if kind != "item":
-            # turn/presence/worktrees/children events are informational
+            # presence/worktrees/children events are informational
             continue
         item = ev.get("item") or {}
         iid = item.get("id")
@@ -148,6 +198,11 @@ def main():
             # Only relay messages authored from the Delta app that are
             # addressed to the bridge, so humans and agents can coexist.
             if not text.startswith(f"[{WATCH_USER}]"):
+                # A dispatch round arms the daemon to watch this thread's
+                # turn lifecycle (engine=delta rounds).
+                if text.startswith("[delta-bridge]:") and round_file_for(text):
+                    round_active = True
+                    round_working_seen = False
                 continue
             prompt = re.sub(rf"^\[{re.escape(WATCH_USER)}\]:?\s*", "", text)
             pane = pane_id()

@@ -41,6 +41,18 @@ title = "Archive this pane into a Delta thread"
 contexts = ["pane"]
 command = ["sh", "bin/delta-archive.sh"]
 
+[[actions]]
+id = "dispatch"
+title = "Dispatch a task through a Delta checkout"
+contexts = ["workspace"]
+command = ["sh", "bin/delta-dispatch.sh"]
+
+[[actions]]
+id = "finalize"
+title = "Land the reviewed round (direct or PR squash)"
+contexts = ["workspace"]
+command = ["sh", "bin/delta-finalize.sh"]
+
 [[link_handlers]]
 id = "delta-thread"
 title = "Open Delta thread link"
