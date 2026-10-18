@@ -14,7 +14,7 @@
 # focused pane.
 
 set -eu
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 . lib/common.sh
 
 have_delta || die "delta CLI not found on PATH"
@@ -32,9 +32,11 @@ fi
 . "$bf"
 
 # Persist which pane this workspace's bridge drives; the daemon reads it.
-echo "PANE_ID=$PANE" >>"$bf" 2>/dev/null || true
-# marker consumed by the daemon: start a bridge for this workspace
-touch "$STATE_DIR/bridge-$(workspace_external_id).want"
+# Rewrite the key (drop earlier PANE_ID lines) so re-syncing retargets.
+tmp="$bf.tmp"
+grep -v '^PANE_ID=' "$bf" >"$tmp" 2>/dev/null || true
+echo "PANE_ID=$PANE" >>"$tmp"
+mv "$tmp" "$bf"
 
 # Surface the bridge in herdr's sidebar: name the pane's agent after the
 # thread so `herdr agent list` reads naturally.

@@ -13,28 +13,31 @@
 # (finalize-<workspace>.env). --mode overrides the remembered merge mode.
 
 set -eu
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 . lib/common.sh
 
-MODE="${MERGE:-direct}"
+ARG_MODE=""
 MSG=""
 while [ $# -gt 0 ]; do
     case "$1" in
-    --mode)    MODE="$2"; shift 2 ;;
-    --message) MSG="$2"; shift 2 ;;
-    *)         die "unknown argument: $1" ;;
+    --mode|--merge) ARG_MODE="$2"; shift 2 ;;   # --merge accepted for symmetry with dispatch
+    --message)      MSG="$2"; shift 2 ;;
+    *)              die "unknown argument: $1" ;;
     esac
 done
-case "$MODE" in
-direct|pr-squash) ;;
-*) die "mode must be direct or pr-squash" ;;
-esac
 
 ff="$STATE_DIR/finalize-$(workspace_external_id).env"
 [ -f "$ff" ] || die "no finalized round recorded for this workspace; run dispatch first"
 . "$ff"
 PROJECT_DIR="${PROJECT_DIR:?finalize record has no PROJECT_DIR}"
 MERGE_TID="${THREAD_ID:-}"
+
+# Precedence: explicit --mode/--merge > the mode dispatch recorded > direct.
+MODE="${ARG_MODE:-${MERGE:-direct}}"
+case "$MODE" in
+direct|pr-squash) ;;
+*) die "mode must be direct or pr-squash" ;;
+esac
 
 [ -n "$(git -C "$PROJECT_DIR" status --porcelain)" ] || die "no uncommitted changes in $PROJECT_DIR to land"
 

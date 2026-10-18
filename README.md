@@ -9,11 +9,13 @@ built entirely on Delta's official external-owner CLI contract
 
 | Action | What it does |
 | --- | --- |
-| `delta.bridge.open` | Open or create the Delta thread bound to the current herdr workspace, and focus it in the Delta app. Also handles clicked `delta.dev/join/...` links. |
+| `delta.bridge.open` | Open or create the Delta thread bound to the current herdr workspace (attaching the workspace's project), and focus it in the Delta app. Also handles clicked `delta.dev/join/...` links. |
 | `delta.bridge.mount` | Keep the bound thread's worktrees mounted so pane agents can work on the thread's checkout. Lives as long as the herdr server. |
 | `delta.bridge.unmount` | Release the mounts once the agents' changes are uploaded. |
 | `delta.bridge.sync` | Bind the invoking pane's agent to the thread and arm the live message bridge. |
 | `delta.bridge.archive` | Snapshot the pane's recent output into the thread so the session is searchable from Delta. |
+| `delta.bridge.dispatch` | Run one full round through a Delta checkout. `--engine terminal` executes a headless agent (`--agent codex\|claude\|zcode`, `--model`, `--effort`) inside the mounted checkout; `--engine delta` records the task and waits for a Send in the GUI. `--merge direct\|pr-squash` is remembered for finalize; `--reviewer PANE` gets nudged when the round ends. |
+| `delta.bridge.finalize` | Land the reviewed round's uncommitted changes: `--mode direct` (commit + push) or `--mode pr-squash` (branch → PR → squash merge). Without `--mode`, the mode dispatch recorded is used. |
 
 ## The message bridge (sync)
 
@@ -58,6 +60,15 @@ herdr plugin install <owner>/herdr-delta
 - Delta 0.20.1 or later (`delta thread` recording contract v1)
 - herdr 0.9.0 or later
 - python3 (bridge loop), pgrep (mount owner resolution)
+
+## Security note
+
+Messages posted to a shared Delta thread that start with `[delta-bridge]: `
+are relayed to a local agent, and terminal-engine agents run with
+permissions bypassed. Since `--visibility organization` puts the thread on
+Delta Cloud, anyone who can post to that thread can drive your local agent
+with your credentials. Only bridge threads you trust, and prefer
+`--engine delta` (human presses Send) for untrusted content.
 
 ## Notes and caveats
 

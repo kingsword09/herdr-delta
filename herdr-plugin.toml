@@ -5,8 +5,9 @@ min_herdr_version = "0.9.0"
 description = "Bridge herdr agents and Delta threads: open threads, borrow checkouts, sync messages both ways, and archive sessions."
 platforms = ["macos", "linux"]
 
-# Long-running message bridge. herdr starts it once per server after session
-# restore; it exits when its delta `thread watch` stream ends.
+# Long-running supervisor: one watch per armed workspace bridge and one per
+# open engine=delta dispatch round; exits and tears down its pipelines on
+# TERM/INT.
 [[startup]]
 command = ["sh", "bin/delta-sync-daemon.sh"]
 platforms = ["macos", "linux"]

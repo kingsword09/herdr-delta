@@ -36,7 +36,7 @@
 # to the daemon (delta engine) or sent here (terminal engine).
 
 set -eu
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 . lib/common.sh
 
 have_delta || die "delta CLI not found on PATH"
@@ -78,16 +78,25 @@ fi
 git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$PROJECT_DIR is not a Git checkout"
 
 # 1. thread for this task, bound to the workspace, with the project attached.
-ext="$(workspace_external_id)-task-$(date +%s)"
+ext="$(workspace_external_id)-task-$(date +%s)-$$"
 tid="$("$DELTA" thread create --source "$BRIDGE_SOURCE" --external-id "$ext" --json | _py 'import json,sys; print(json.load(sys.stdin)["thread_id"])')"
 [ -n "$tid" ] || die "thread create failed"
 # append refuses unshared threads (server-confirmed receipts).
 "$DELTA" thread share "$tid" --visibility organization >/dev/null 2>&1 || true
 "$DELTA" worktree attach "$PROJECT_DIR" --thread "$tid" --json >/dev/null 2>&1 || true
 
-# 2. borrow an isolated checkout; its lifetime equals this dispatch.
-owner="dispatch-$(date +%s)"
-mount_json="$("$DELTA" thread mount "$tid" --owner "$owner" --json)" || die "thread mount failed"
+# 2. borrow an isolated checkout; its lifetime equals this dispatch. The
+#    trap guarantees the checkout is returned even when a later step dies.
+owner="dispatch-$ext"
+mounted=""
+return_checkout() {
+    [ -n "$mounted" ] || return 0
+    "$DELTA" thread unmount "$tid" --owner "$owner" --json >/dev/null 2>&1 || true
+    mounted=""
+}
+trap return_checkout EXIT INT TERM
+mount_json="$("$DELTA" thread mount "$tid" --owner "$owner" --owner-pid $$ --json)" || die "thread mount failed"
+mounted=1
 checkout="$(printf '%s' "$mount_json" | _py 'import json,sys; print(json.load(sys.stdin)["directory"])')"
 [ -n "$checkout" ] && [ -d "$checkout" ] || die "mount returned no checkout directory"
 
@@ -116,8 +125,8 @@ echo "engine:   $ENGINE (merge: ${MERGE:-direct})"
 # 4. execute
 if [ "$ENGINE" = "delta" ]; then
     # Human-in-the-loop execution: focus the app on the thread; the daemon
-    # notices the round via its own thread watch and nudges the reviewer
-    # when the turn goes back to idle.
+    # watches this round's task thread and nudges the reviewer when the GUI
+    # turn goes back to idle. The round file stays until finalize runs.
     "$DELTA" open "$tid" || true
     {
         echo "THREAD_ID=$tid"
@@ -125,9 +134,10 @@ if [ "$ENGINE" = "delta" ]; then
         echo "MERGE=${MERGE:-direct}"
         echo "REVIEWER=${REVIEWER:-}"
         echo "CHECKOUT=$checkout"
+        echo "PROJECT_DIR=$PROJECT_DIR"
     } >"$STATE_DIR/round-$ext.env"
-    touch "$STATE_DIR/bridge-$(workspace_external_id).want"
     echo "recorded the task; press Send in Delta to execute, the reviewer will be nudged when the turn completes"
+    exit 0   # trap returns the checkout; the GUI round continues asynchronously
 else
     # Headless execution inside the mounted checkout.
     run_terminal_agent "$TASK" "$checkout" "$STATE_DIR/exec-$ext.log" || true
@@ -138,6 +148,8 @@ print(json.dumps({"sessionUpdate": "agent_message",
                   "content": [{"type": "text",
                                "text": "[herdr]: terminal agent output\n\n" + sys.stdin.read()[-8000:]}]}))')"
     record "$open_seq" "$out_json"
+    # Close the turn: Delta shows the round as running until this lands.
+    record "$open_seq" '{"sessionUpdate":"state_update","state":"idle"}'
 fi
 
 # 5. return the checkout; changes upload into thread history and appear in
@@ -146,15 +158,13 @@ fi
 
 if [ "$ENGINE" = "terminal" ] && [ -n "$REVIEWER" ]; then
     # 6a. terminal rounds end here; nudge the reviewer immediately.
-    review_msg="Delta round finished (thread $tid). Review uncommitted changes in $PROJECT_DIR (git diff) or open the thread in Delta; reply 'finalize' with --merge ${MERGE:-direct} when satisfied."
+    review_msg="Delta round finished (thread $tid). Review uncommitted changes in $PROJECT_DIR (git diff) or open the thread in Delta; run delta.bridge.finalize --mode ${MERGE:-direct} when satisfied."
     "$HERDR" agent prompt "$REVIEWER" "$review_msg" >/dev/null 2>&1 \
         || "$HERDR" pane send-text "$REVIEWER" "$review_msg" >/dev/null 2>&1 \
         || true
-else
-    # 6b. delta-engine rounds: the daemon nudges the reviewer when the GUI
-    # turn completes. Persist the round so finalize knows what to merge.
-    :
 fi
+# 6b. delta-engine rounds: the daemon nudges the reviewer when the GUI turn
+# completes (the round file stays until then).
 { echo "THREAD_ID=$tid"; echo "MERGE=${MERGE:-direct}"; echo "PROJECT_DIR=$PROJECT_DIR"; } \
     >"$STATE_DIR/finalize-$(workspace_external_id).env"
 

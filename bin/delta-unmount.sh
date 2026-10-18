@@ -3,7 +3,7 @@
 # thread once the agents are done and their changes are uploaded.
 
 set -eu
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 . lib/common.sh
 
 have_delta || die "delta CLI not found on PATH"

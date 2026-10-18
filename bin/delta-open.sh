@@ -12,23 +12,20 @@
 # passes the clicked URL via HERDR_PLUGIN_CLICKED_URL), bind to that.
 
 set -eu
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 . lib/common.sh
 
 have_delta || die "delta CLI not found on PATH; run: ln -sfn /Applications/Delta.app/Contents/MacOS/delta ~/.local/bin/delta"
 
-# Link-handler path: clicked a https://delta.dev/jain/... URL.
+# Link-handler path: clicked a https://delta.dev/join/... URL.
 clicked="${HERDR_PLUGIN_CLICKED_URL:-}"
 if [ -n "$clicked" ]; then
     case "$clicked" in
     *delta.dev/join/*)
         jid="$(printf '%s' "$clicked" | sed -nE 's#.*/join/(thread_[A-Za-z0-9]+)$#\1#p')"
         [ -n "$jid" ] || die "unrecognized Delta link: $clicked"
-        tid="$("$DELTA" thread create --source "$BRIDGE_SOURCE" --external-id "$(workspace_external_id)" --json 2>/dev/null | _py 'import json,sys; print(json.load(sys.stdin)["thread_id"])' || true)"
-        # We can't force-bind to an arbitrary existing thread via create;
-        # just open it and remember the join id.
         open_join_id "$jid"
-        echo "binding to $jid is join-level; opened in Delta"
+        echo "opened $jid in Delta"
         exit 0
         ;;
     esac

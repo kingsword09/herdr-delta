@@ -38,14 +38,16 @@ WATCH_USER = "delta-bridge"   # sender prefix we recognize from the app
 
 
 def binding(key, default=None):
+    """Last matching key wins, matching how shell `.` sources the file."""
+    value = default
     try:
         with open(BINDING) as f:
             for line in f:
                 if line.startswith(key + "="):
-                    return line.rstrip("\n").split("=", 1)[1]
+                    value = line.rstrip("\n").split("=", 1)[1]
     except OSError:
         pass
-    return default
+    return value
 
 
 def pane_id():
@@ -124,24 +126,31 @@ def nudge_reviewer(message):
         herdr("pane", "send-text", pane, message, timeout_s=15)
 
 
-def round_file_for(text):
-    """True when a dispatch round record (round-*.env) names this thread."""
+def round_thread_ids():
+    """Thread ids of open engine=delta dispatch rounds (round-*.env files).
+
+    A round is open until it is cleaned up: dispatch removes the round file
+    after unmount, so a stale round file means the round is still pending.
+    """
+    ids = set()
     try:
         names = os.listdir(STATE_DIR)
     except OSError:
-        return False
+        return ids
     for name in names:
         if not name.startswith("round-") or not name.endswith(".env"):
             continue
-        path = os.path.join(STATE_DIR, name)
         try:
-            with open(path) as f:
+            with open(os.path.join(STATE_DIR, name)) as f:
                 body = f.read()
         except OSError:
             continue
-        if f"THREAD_ID={THREAD_ID}" in body and "ENGINE=delta" in body:
-            return True
-    return False
+        if "ENGINE=delta" not in body:
+            continue
+        for line in body.splitlines():
+            if line.startswith("THREAD_ID="):
+                ids.add(line.split("=", 1)[1].strip())
+    return ids
 
 
 def main():
@@ -165,8 +174,11 @@ def main():
         if kind == "turn":
             # engine=delta rounds: the human pressed Send in the GUI; when
             # the turn goes back to idle the round is done — nudge the
-            # reviewer pane once.
+            # reviewer pane once. The daemon starts one watch per open
+            # round file, so this watch's thread is the round's task thread.
             state = (ev.get("state") or "").strip()
+            if not round_active:
+                round_active = THREAD_ID in round_thread_ids()
             if round_active:
                 if state == "running":
                     round_working_seen = True
@@ -198,11 +210,6 @@ def main():
             # Only relay messages authored from the Delta app that are
             # addressed to the bridge, so humans and agents can coexist.
             if not text.startswith(f"[{WATCH_USER}]"):
-                # A dispatch round arms the daemon to watch this thread's
-                # turn lifecycle (engine=delta rounds).
-                if text.startswith("[delta-bridge]:") and round_file_for(text):
-                    round_active = True
-                    round_working_seen = False
                 continue
             prompt = re.sub(rf"^\[{re.escape(WATCH_USER)}\]:?\s*", "", text)
             pane = pane_id()
@@ -214,8 +221,8 @@ def main():
                 continue
             turn_open_seq = next_seq() - 1
             rc, out = herdr("agent", "prompt", pane, prompt,
-                            "--wait", "--until", "idle", "done",
-                            timeout_s=1200_000 // 1000)
+                            "--wait", "--until", "idle",
+                            "--until", "done", timeout_s=1200)
             reply = agent_reply_text()
             append_record({"sessionUpdate": "agent_message",
                            "messageId": f"r-{int(time.time())}",

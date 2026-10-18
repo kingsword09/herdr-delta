@@ -10,7 +10,6 @@ DELTA="${DELTA_BIN:-delta}"
 HERDR="${HERDR_BIN_PATH:-herdr}"
 STATE_DIR="${HERDR_PLUGIN_STATE_DIR:-$HOME/.local/state/herdr-delta}"
 BRIDGE_SOURCE="herdr"
-JOIN_URL_RE='https://delta\.dev/join/(thread_[A-Za-z0-9]+)'
 
 mkdir -p "$STATE_DIR"
 
@@ -44,14 +43,24 @@ require_binding() {
     [ -n "$THREAD_ID" ] || die "binding file $bf has no THREAD_ID"
 }
 
-# Ensure a thread is shared (append refuses unshared threads) and store the binding.
+# Ensure a thread is shared (append refuses unshared threads) and store the
+# binding. Merge-writes: unknown keys (e.g. PANE_ID from `sync`) survive;
+# the temp file + mv keeps readers from seeing a half-written binding.
 save_binding() {
     tid="$1"
-    share_out="$("$DELTA" thread share "$tid" --visibility organization 2>&1)" || true
+    share_out="$("$DELTA" thread share "$tid" --visibility organization 2>&1)" \
+        || echo "delta.bridge: thread share failed (append will refuse): $share_out" >&2
+    bf="$(binding_file)"
+    tmp="$bf.tmp"
     {
+        # carry over keys we do not own, dropping stale duplicates (last wins)
+        if [ -f "$bf" ]; then
+            grep -vE '^(THREAD_ID|LAST_SHARED_AT)=' "$bf" | awk '!seen[$1]++' || true
+        fi
         echo "THREAD_ID=$tid"
         echo "LAST_SHARED_AT=$(date -u +%FT%TZ)"
-    } >"$(binding_file)"
+    } >"$tmp"
+    mv "$tmp" "$bf"
     echo "$tid"
 }
 
@@ -105,11 +114,11 @@ run_terminal_agent() { # run_terminal_agent <task> <checkout> <log-file>
         (cd "$ck" && claude -p $model_args --dangerously-skip-permissions "$task") >"$log" 2>&1
         ;;
     zcode)
-        # npx-installed ZCode: headless via --prompt; yolo mode so it lands
-        # changes. Long form required: -p is ambiguous in 0.16.9.
+        # ZCode headless: --prompt long form (short -p is ambiguous in
+        # 0.16.9); yolo mode so it lands changes.
         zcode_bin="${ZCODE_BIN:-zcode}"
         command -v "$zcode_bin" >/dev/null 2>&1 \
-            || zcode_bin="${HOME}/.npm/_npx/e13d1ea324ce7e27/node_modules/.bin/zcode"
+            || die "zcode not found; set ZCODE_BIN (e.g. the npx bin path)"
         (cd "$ck" && "$zcode_bin" --prompt "$task" --mode yolo --surface terminal) >"$log" 2>&1
         ;;
     *)
