@@ -105,11 +105,12 @@ run_terminal_agent() { # run_terminal_agent <task> <checkout> <log-file>
         (cd "$ck" && claude -p $model_args --dangerously-skip-permissions "$task") >"$log" 2>&1
         ;;
     zcode)
-        # npx-installed ZCode: headless via -p; yolo mode so it lands changes.
+        # npx-installed ZCode: headless via --prompt; yolo mode so it lands
+        # changes. Long form required: -p is ambiguous in 0.16.9.
         zcode_bin="${ZCODE_BIN:-zcode}"
         command -v "$zcode_bin" >/dev/null 2>&1 \
             || zcode_bin="${HOME}/.npm/_npx/e13d1ea324ce7e27/node_modules/.bin/zcode"
-        (cd "$ck" && "$zcode_bin" -p --mode yolo --cwd "$ck" "$task") >"$log" 2>&1
+        (cd "$ck" && "$zcode_bin" --prompt "$task" --mode yolo --surface terminal) >"$log" 2>&1
         ;;
     *)
         echo "delta.bridge: no headless template for agent '${AGENT:-}'" >"$log"

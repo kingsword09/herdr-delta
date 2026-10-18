@@ -81,6 +81,8 @@ git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$P
 ext="$(workspace_external_id)-task-$(date +%s)"
 tid="$("$DELTA" thread create --source "$BRIDGE_SOURCE" --external-id "$ext" --json | _py 'import json,sys; print(json.load(sys.stdin)["thread_id"])')"
 [ -n "$tid" ] || die "thread create failed"
+# append refuses unshared threads (server-confirmed receipts).
+"$DELTA" thread share "$tid" --visibility organization >/dev/null 2>&1 || true
 "$DELTA" worktree attach "$PROJECT_DIR" --thread "$tid" --json >/dev/null 2>&1 || true
 
 # 2. borrow an isolated checkout; its lifetime equals this dispatch.
