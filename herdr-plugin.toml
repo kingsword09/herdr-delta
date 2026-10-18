@@ -1,0 +1,49 @@
+id = "delta.bridge"
+name = "Delta Bridge"
+version = "0.1.0"
+min_herdr_version = "0.9.0"
+description = "Bridge herdr agents and Delta threads: open threads, borrow checkouts, sync messages both ways, and archive sessions."
+platforms = ["macos", "linux"]
+
+# Long-running message bridge. herdr starts it once per server after session
+# restore; it exits when its delta `thread watch` stream ends.
+[[startup]]
+command = ["sh", "bin/delta-sync-daemon.sh"]
+platforms = ["macos", "linux"]
+
+[[actions]]
+id = "open"
+title = "Open in Delta"
+contexts = ["workspace"]
+command = ["sh", "bin/delta-open.sh"]
+
+[[actions]]
+id = "mount"
+title = "Borrow this workspace's Delta checkout"
+contexts = ["workspace"]
+command = ["sh", "bin/delta-mount.sh"]
+
+[[actions]]
+id = "unmount"
+title = "Return the Delta checkout"
+contexts = ["workspace"]
+command = ["sh", "bin/delta-unmount.sh"]
+
+[[actions]]
+id = "sync"
+title = "Sync this pane's agent with a Delta thread"
+contexts = ["pane"]
+command = ["sh", "bin/delta-sync.sh"]
+
+[[actions]]
+id = "archive"
+title = "Archive this pane into a Delta thread"
+contexts = ["pane"]
+command = ["sh", "bin/delta-archive.sh"]
+
+[[link_handlers]]
+id = "delta-thread"
+title = "Open Delta thread link"
+# https://delta.dev/join/thread_... — route clicks straight into the app.
+pattern = "^https://delta\\.dev/join/(thread_[A-Za-z0-9]+)$"
+action = "open"
