@@ -26,15 +26,17 @@ SEQ_FILE="$STATE_DIR/seq-$(workspace_external_id)-$ARCH_ID.txt"
 seq=1
 [ -f "$SEQ_FILE" ] && seq=$(cat "$SEQ_FILE")
 
-emit() { # emit <json-update> -> one append record with our sequence bookkeeping
-    payload="$(printf '{"schemaVersion":1,"sequence":%s,"turnSequence":%s,"update":%s}' "$seq" "$seq" "$1")"
+
+# one self-contained turn: running (turn opens with turnSequence == its own
+# sequence) -> agent_message(snapshot) -> idle, both pointing at the opener.
+open_seq="$seq"
+emit_turn() { # emit_turn <turn_seq> <json-update>
+    payload="$(printf '{"schemaVersion":1,"sequence":%s,"turnSequence":%s,"update":%s}' "$seq" "$1" "$2")"
     printf '%s' "$payload" | "$DELTA" thread append "$THREAD_ID" --source "$BRIDGE_SOURCE" --external-id "$ARCH_ID" >/dev/null
     seq=$((seq+1))
     echo "$seq" >"$SEQ_FILE"
 }
-
-# one self-contained turn: running -> agent_message(snapshot) -> idle
-emit '{"sessionUpdate":"state_update","state":"running"}'
+emit_turn "$open_seq" '{"sessionUpdate":"state_update","state":"running"}'
 # content MUST be a block array; keep the snapshot one JSON string
 python3 - "$SNAPSHOT" <<'PY' > /tmp/delta-arch-$$.json
 import json, sys
@@ -44,8 +46,8 @@ print(json.dumps({"sessionUpdate": "agent_message",
                   "content": [{"type": "text",
                                 "text": f"[herdr]: pane archive\n\n{text}"}]}))
 PY
-emit "$(cat /tmp/delta-arch-$$.json)"
+emit_turn "$open_seq" "$(cat /tmp/delta-arch-$$.json)"
 rm -f /tmp/delta-arch-$$.json
-emit '{"sessionUpdate":"state_update","state":"idle"}'
+emit_turn "$open_seq" '{"sessionUpdate":"state_update","state":"idle"}'
 
 echo "archived $LINES lines of pane $PANE into thread $THREAD_ID"

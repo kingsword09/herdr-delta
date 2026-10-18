@@ -54,10 +54,34 @@ if [ -n "$pane" ]; then
 fi
 
 # Fresh recorded thread bound to this workspace.
-# Fresh recorded thread bound to this workspace.
 tid="$("$DELTA" thread create --source "$BRIDGE_SOURCE" --external-id "$(workspace_external_id)" --json | _py 'import json,sys; print(json.load(sys.stdin)["thread_id"])')"
 [ -n "$tid" ] || die "thread create returned no id"
 
+# Attach the workspace's project so the thread lands under that project in
+# Delta instead of a bare conversation. Workspace objects carry no cwd, so
+# take the first pane cwd of this workspace; override with DELTA_PROJECT=/path.
+project_dir="${DELTA_PROJECT:-}"
+if [ -z "$project_dir" ] && [ -n "${HERDR_WORKSPACE_ID:-}" ]; then
+    project_dir="$("$HERDR" pane list 2>/dev/null | _py 'import json,sys
+ws = __import__("os").environ.get("HERDR_WORKSPACE_ID")
+d = json.load(sys.stdin)
+for p in d["result"]["panes"]:
+    if p.get("workspace_id") == ws:
+        print(p.get("cwd") or p.get("foreground_cwd") or "")
+        break' || true)"
+fi
+
+attach_project() {
+    [ -n "$project_dir" ] || return 1
+    git -C "$project_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+    # attach is idempotent for a directory already bound to this thread
+    "$DELTA" worktree attach "$project_dir" --thread "$tid" --json >/dev/null 2>&1 || true
+}
+
+attach_project || echo "note: no Git checkout found for this workspace; thread created as a plain conversation" >&2
 save_binding "$tid" >/dev/null
 "$DELTA" open "$tid"
 echo "created and opened Delta thread $tid"
+if [ -n "$project_dir" ]; then
+    echo "project: $project_dir"
+fi
