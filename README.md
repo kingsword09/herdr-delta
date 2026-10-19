@@ -33,6 +33,31 @@ After `delta.bridge.sync`, the plugin's startup daemon runs
 Only `[delta-bridge]: `-prefixed messages are relayed, so humans can talk
 in the same thread without accidentally driving the agent.
 
+## Native rendering (dispatch)
+
+Dispatch records a round as Delta-native items, so the thread renders like
+a turn produced by Delta's own agent rather than a pasted terminal log:
+
+- **Thinking** — `agent_thought` records (requires `messageId`; the
+  recorder rejects thoughts without one).
+- **Tools** — `tool_call_update` records with `title`, `kind`
+  (`read`/`edit`/`execute`/`search`/`fetch`/`other`), `status`, content
+  and locations. Delta aggregates them into a summary line such as
+  `Thought 8 times, listed 5 directories, read 16 files`.
+- **Answer** — one `agent_message` with the agent's final text.
+
+Structured agent streams are translated event by event:
+
+| Agent | Stream | Mapping |
+| --- | --- | --- |
+| `codex` | `codex exec --json` | `reasoning` → thought; `command_execution` / `file_change` / `mcp_tool_call` / `web_search` → tool cards; `agent_message` → final answer |
+| `claude` | `claude -p --output-format stream-json --verbose` | `thinking` → thought; `tool_use` + `tool_result` paired into one card per call (`is_error` → failed); `result` → final answer |
+| `zcode` | plain text (0.16.9 has no usable JSON event stream) | narrative filter strips stacks and `[Object]` dumps; falls back to the raw tail so failures stay visible |
+
+`plan_update`, `terminal_update`, and `agent_thought` without a
+`messageId` are rejected by Delta's recording path, so the mapper never
+emits them.
+
 ## Install
 
 The `delta` CLI must be on PATH **as a symlink** (a copy of the app binary
