@@ -1,6 +1,6 @@
 id = "delta.bridge"
 name = "Delta Bridge"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.9.0"
 description = "Bridge herdr agents and Delta threads: open threads, borrow checkouts, sync messages both ways, and archive sessions."
 platforms = ["macos", "linux"]
@@ -9,50 +9,50 @@ platforms = ["macos", "linux"]
 # open engine=delta dispatch round; exits and tears down its pipelines on
 # TERM/INT.
 [[startup]]
-command = ["sh", "bin/delta-sync-daemon.sh"]
+command = ["node", "lib/cli.mjs", "daemon"]
 platforms = ["macos", "linux"]
 
 [[actions]]
 id = "open"
 title = "Open in Delta"
 contexts = ["workspace"]
-command = ["sh", "bin/delta-open.sh"]
+command = ["node", "lib/cli.mjs", "open"]
 
 [[actions]]
 id = "mount"
 title = "Borrow this workspace's Delta checkout"
 contexts = ["workspace"]
-command = ["sh", "bin/delta-mount.sh"]
+command = ["node", "lib/cli.mjs", "mount"]
 
 [[actions]]
 id = "unmount"
 title = "Return the Delta checkout"
 contexts = ["workspace"]
-command = ["sh", "bin/delta-unmount.sh"]
+command = ["node", "lib/cli.mjs", "unmount"]
 
 [[actions]]
 id = "sync"
 title = "Sync this pane's agent with a Delta thread"
 contexts = ["pane"]
-command = ["sh", "bin/delta-sync.sh"]
+command = ["node", "lib/cli.mjs", "sync"]
 
 [[actions]]
 id = "archive"
 title = "Archive this pane into a Delta thread"
 contexts = ["pane"]
-command = ["sh", "bin/delta-archive.sh"]
+command = ["node", "lib/cli.mjs", "archive"]
 
 [[actions]]
 id = "dispatch"
 title = "Dispatch a task through a Delta checkout"
 contexts = ["workspace"]
-command = ["sh", "bin/delta-dispatch.sh"]
+command = ["node", "lib/cli.mjs", "dispatch"]
 
 [[actions]]
 id = "finalize"
 title = "Land the reviewed round (direct or PR squash)"
 contexts = ["workspace"]
-command = ["sh", "bin/delta-finalize.sh"]
+command = ["node", "lib/cli.mjs", "finalize"]
 
 [[link_handlers]]
 id = "delta-thread"

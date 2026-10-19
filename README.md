@@ -59,7 +59,16 @@ herdr plugin install <owner>/herdr-delta
 
 - Delta 0.20.1 or later (`delta thread` recording contract v1)
 - herdr 0.9.0 or later
-- python3 (bridge loop), pgrep (mount owner resolution)
+- Node.js >= 20 (or bun) — all plugin logic runs on it
+
+## Tests
+
+The reverse-engineered append contract has unit tests (fake `delta` binary
+enforcing the real invariants):
+
+```sh
+node test/recorder.test.mjs
+```
 
 ## Security note
 
