@@ -41,6 +41,19 @@ cd "$(dirname "$0")/.." || exit 1
 
 have_delta || die "delta CLI not found on PATH"
 
+# Warn about a previous round that was never landed: its uncommitted
+# changes still sit in the project tree and a finalize record is pending.
+ff="$STATE_DIR/finalize-$(workspace_external_id).env"
+if [ -f "$ff" ]; then
+    # shellcheck disable=SC1090
+    . "$ff"
+    if [ -n "${PROJECT_DIR:-}" ] && [ -n "$(git -C "$PROJECT_DIR" status --porcelain 2>/dev/null || true)" ]; then
+        echo "delta.bridge: NOTE uncommitted changes from a previous round are still in $PROJECT_DIR" >&2
+        echo "delta.bridge:      (thread ${THREAD_ID:-?}); run finalize first if you want them landed before this round" >&2
+    fi
+    unset PROJECT_DIR THREAD_ID MERGE
+fi
+
 TASK=""
 ENGINE=""
 AGENT="codex"
@@ -86,23 +99,33 @@ tid="$("$DELTA" thread create --source "$BRIDGE_SOURCE" --external-id "$ext" --j
 "$DELTA" worktree attach "$PROJECT_DIR" --thread "$tid" --json >/dev/null 2>&1 || true
 
 # 2. borrow an isolated checkout; its lifetime equals this dispatch. The
-#    trap guarantees the checkout is returned even when a later step dies.
+#    trap guarantees that ANY exit path (success, die, INT/TERM) both
+#    returns the checkout and closes a half-open recorded turn.
 owner="dispatch-$ext"
 mounted=""
-return_checkout() {
+turn_open=0
+SEQ_FILE="$STATE_DIR/seq-$ext.txt"
+seq=1
+close_turn() {
+    [ "$turn_open" -eq 1 ] || return 0
+    printf '{"schemaVersion":1,"sequence":%s,"turnSequence":1,"update":{"sessionUpdate":"state_update","state":"idle"}}' \
+        "$seq" \
+        | "$DELTA" thread append "$tid" --source "$BRIDGE_SOURCE" --external-id "$ext" >/dev/null 2>&1 \
+        && { seq=$((seq+1)); echo "$seq" >"$SEQ_FILE"; turn_open=0; } || true
+}
+round_cleanup() {
+    close_turn
     [ -n "$mounted" ] || return 0
     "$DELTA" thread unmount "$tid" --owner "$owner" --json >/dev/null 2>&1 || true
     mounted=""
 }
-trap return_checkout EXIT INT TERM
+trap round_cleanup EXIT INT TERM
 mount_json="$("$DELTA" thread mount "$tid" --owner "$owner" --owner-pid $$ --json)" || die "thread mount failed"
 mounted=1
 checkout="$(printf '%s' "$mount_json" | _py 'import json,sys; print(json.load(sys.stdin)["directory"])')"
 [ -n "$checkout" ] && [ -d "$checkout" ] || die "mount returned no checkout directory"
 
 # 3. record the task (and dispatch metadata) as the opening of the round.
-SEQ_FILE="$STATE_DIR/seq-$ext.txt"
-seq=1
 record() { # record <turn_seq> <json-update>
     printf '{"schemaVersion":1,"sequence":%s,"turnSequence":%s,"update":%s}' \
         "$seq" "$1" "$2" \
@@ -116,6 +139,7 @@ print(json.dumps({"sessionUpdate": "user_message",
                   "content": [{"type": "text",
                                "text": "[delta-bridge]: " + sys.stdin.read().strip()}]}))')"
 record "$open_seq" '{"sessionUpdate":"state_update","state":"running"}'
+turn_open=1
 record "$open_seq" "$task_json"
 
 echo "thread:   $tid"
@@ -148,13 +172,13 @@ print(json.dumps({"sessionUpdate": "agent_message",
                   "content": [{"type": "text",
                                "text": "[herdr]: terminal agent output\n\n" + sys.stdin.read()[-8000:]}]}))')"
     record "$open_seq" "$out_json"
-    # Close the turn: Delta shows the round as running until this lands.
-    record "$open_seq" '{"sessionUpdate":"state_update","state":"idle"}'
+    # Close the turn on the happy path too (no-op if the trap already did).
+    close_turn
 fi
 
 # 5. return the checkout; changes upload into thread history and appear in
 #    the project working tree as uncommitted changes.
-"$DELTA" thread unmount "$tid" --owner "$owner" --json >/dev/null || true
+round_cleanup
 
 if [ "$ENGINE" = "terminal" ] && [ -n "$REVIEWER" ]; then
     # 6a. terminal rounds end here; nudge the reviewer immediately.
