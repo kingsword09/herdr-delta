@@ -1,0 +1,16 @@
+#!/bin/sh
+# delta-bridge — thin launcher for the plugin CLI, usable from any shell or
+# agent (zcode, codex, claude, a script) inside a herdr pane.
+#
+# The pane environment already carries HERDR_WORKSPACE_ID / HERDR_PANE_ID /
+# HERDR_BIN_PATH, so no context flags are needed:
+#
+#   delta-bridge dispatch "fix the failing test" --agent codex --merge direct
+#   delta-bridge finalize --mode pr-squash
+#   delta-bridge open
+#
+# Install: add this repo's bin/ to PATH, or call it by absolute path:
+#   /path/to/herdr-delta/bin/delta-bridge <action> [args...]
+set -eu
+root="$(cd "$(dirname "$0")/.." && pwd)"
+exec node "$root/lib/cli.mjs" "$@"

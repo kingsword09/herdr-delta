@@ -33,6 +33,53 @@ After `delta.bridge.sync`, the plugin's startup daemon runs
 Only `[delta-bridge]: `-prefixed messages are relayed, so humans can talk
 in the same thread without accidentally driving the agent.
 
+## Triggering from an agent (zcode, codex, claude)
+
+An agent running inside a herdr pane already has the context the plugin
+needs (`HERDR_WORKSPACE_ID`, `HERDR_PANE_ID`, `HERDR_BIN_PATH`), so the
+shortest path is the launcher:
+
+```sh
+# from any pane / any agent shell
+/path/to/herdr-delta/bin/delta-bridge dispatch \
+  "fix the failing test in src/parser.ts" \
+  --agent codex --model gpt-6-astra --effort high --merge direct
+```
+
+Put `bin/` on PATH once and drop the path:
+
+```sh
+export PATH="$HOME/Documents/code/ai/herdr-delta/bin:$PATH"
+delta-bridge dispatch "add retry to the uploader" --agent zcode
+```
+
+A planning agent usually pipes the plan in instead of quoting it:
+
+```sh
+printf '%s' "$PLAN" | delta-bridge dispatch --agent codex --merge pr-squash
+```
+
+The other actions need no task and work the same way:
+
+```sh
+delta-bridge open                       # create/open this workspace's thread
+delta-bridge sync                       # bind this pane's agent for live chat
+delta-bridge archive                    # snapshot this pane into the thread
+delta-bridge mount / unmount            # borrow / return a checkout manually
+delta-bridge finalize --mode pr-squash  # land the reviewed round
+```
+
+From the herdr UI the same actions appear in the action menu
+(workspace/pane context). The UI cannot pass a task string, so use the
+launcher (or stdin) for `dispatch`.
+
+`herdr plugin action invoke <action> --plugin delta.bridge` works for the
+argument-less actions; herdr does not forward extra argv to plugin actions.
+
+State lives in `~/.local/state/herdr/plugins/delta.bridge/` (bindings,
+sequence counters, round records), which is the directory herdr injects as
+`HERDR_PLUGIN_STATE_DIR`.
+
 ## Native rendering (dispatch)
 
 Dispatch records a round as Delta-native items, so the thread renders like
